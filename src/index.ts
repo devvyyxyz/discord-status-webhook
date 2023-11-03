@@ -1,7 +1,9 @@
-import { WebhookClient, MessageEmbed } from 'discord.js';
-import fetch from 'node-fetch';
 import { StatusPageIncident, StatusPageResult } from './interfaces/StatusPage';
+import { WebhookClient, EmbedBuilder } from 'discord.js';
+import { logger } from './logger';
+import * as dotenv from 'dotenv';
 import { DateTime } from 'luxon';
+import fetch from 'node-fetch';
 import Keyv from 'keyv';
 import {
 	EMBED_COLOR_GREEN,
@@ -11,8 +13,8 @@ import {
 	EMBED_COLOR_BLACK,
 	API_BASE,
 } from './constants';
-import { logger } from './logger';
 const incidentData: Keyv<DataEntry> = new Keyv(`sqlite://./data/data.sqlite`);
+dotenv.config();
 
 interface DataEntry {
 	messageID: string;
@@ -21,10 +23,10 @@ interface DataEntry {
 	resolved: boolean;
 }
 
-const hook = new WebhookClient(process.env.DISCORD_WEBHOOK_ID!, process.env.DISCORD_WEBHOOK_TOKEN!);
+const hook = new WebhookClient({ url: process.env.DISCORD_WEBHOOK_URL! });
 logger.info(`Starting with ${hook.id}`);
 
-function embedFromIncident(incident: StatusPageIncident): MessageEmbed {
+function embedFromIncident(incident: StatusPageIncident): EmbedBuilder {
 	const color =
 		incident.status === 'resolved' || incident.status === 'postmortem'
 			? EMBED_COLOR_GREEN
@@ -38,17 +40,22 @@ function embedFromIncident(incident: StatusPageIncident): MessageEmbed {
 
 	const affectedNames = incident.components.map((c) => c.name);
 
-	const embed = new MessageEmbed()
+	const embed = new EmbedBuilder()
 		.setColor(color)
 		.setTimestamp(new Date(incident.started_at))
 		.setURL(incident.shortlink)
 		.setTitle(incident.name)
-		.setFooter(incident.id);
+		.setFooter({ text: incident.id });
 
 	for (const update of incident.incident_updates.reverse()) {
 		const updateDT = DateTime.fromISO(update.created_at);
 		const timeString = `<t:${Math.floor(updateDT.toSeconds())}:R>`;
-		embed.addField(`${update.status.charAt(0).toUpperCase()}${update.status.slice(1)} (${timeString})`, update.body);
+		embed.addFields([
+			{
+				name: `${update.status.charAt(0).toUpperCase()}${update.status.slice(1)} (${timeString})`,
+				value: update.body,
+			},
+		]);
 	}
 
 	const descriptionParts = [`• Impact: ${incident.impact}`];
@@ -69,7 +76,9 @@ function isResolvedStatus(status: string) {
 async function updateIncident(incident: StatusPageIncident, messageID?: string) {
 	const embed = embedFromIncident(incident);
 	try {
-		const message = await (messageID ? hook.editMessage(messageID, embed) : hook.send(embed));
+		const message = await (messageID
+			? hook.editMessage(messageID, { embeds: [embed] })
+			: hook.send({ embeds: [embed] }));
 		logger.debug(`setting: ${incident.id} to message: ${message.id}`);
 		await incidentData.set(incident.id, {
 			incidentID: incident.id,
@@ -82,6 +91,7 @@ async function updateIncident(incident: StatusPageIncident, messageID?: string) 
 			logger.error(`error during hook update on incident ${incident.id} message: ${messageID}\n`, error);
 			return;
 		}
+		console.error(error);
 		logger.error(`error during hook sending on incident ${incident.id}\n`, error);
 	}
 }
@@ -111,6 +121,7 @@ async function check() {
 			}
 		}
 	} catch (error) {
+		console.error(error);
 		logger.error(`error during fetch and update routine:\n`, error);
 	}
 }
