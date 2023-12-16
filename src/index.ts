@@ -5,6 +5,7 @@ import * as dotenv from 'dotenv';
 import { DateTime } from 'luxon';
 import fetch from 'node-fetch';
 import Keyv from 'keyv';
+import fs from 'fs';
 import {
 	EMBED_COLOR_GREEN,
 	EMBED_COLOR_RED,
@@ -13,7 +14,12 @@ import {
 	EMBED_COLOR_BLACK,
 	API_BASE,
 } from './constants';
-const incidentData: Keyv<DataEntry> = new Keyv(`sqlite://./data/data.sqlite`);
+
+const filePath = './data/data.sqlite';
+if (!fs.existsSync(filePath)) {
+	fs.writeFileSync(filePath, '');
+}
+const incidentData: Keyv<DataEntry> = new Keyv(`sqlite://${filePath}`);
 dotenv.config();
 
 interface DataEntry {
@@ -31,12 +37,12 @@ function embedFromIncident(incident: StatusPageIncident): EmbedBuilder {
 		incident.status === 'resolved' || incident.status === 'postmortem'
 			? EMBED_COLOR_GREEN
 			: incident.impact === 'critical'
-			? EMBED_COLOR_RED
-			: incident.impact === 'major'
-			? EMBED_COLOR_ORANGE
-			: incident.impact === 'minor'
-			? EMBED_COLOR_YELLOW
-			: EMBED_COLOR_BLACK;
+				? EMBED_COLOR_RED
+				: incident.impact === 'major'
+					? EMBED_COLOR_ORANGE
+					: incident.impact === 'minor'
+						? EMBED_COLOR_YELLOW
+						: EMBED_COLOR_BLACK;
 
 	const affectedNames = incident.components.map((c) => c.name);
 
